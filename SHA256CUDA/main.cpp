@@ -13,6 +13,7 @@
 #define SHOW_INTERVAL_MS 1000
 #define BLOCK_SIZE 1024
 #define SHA_PER_ITERATIONS 3200
+#define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
 
 size_t difficulty = 7;
 
@@ -170,12 +171,11 @@ int main() {
 	pre_sha256();
 
 	for (;;) {
-		int numBlocks = (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE;
-		sha256_kernel << < numBlocks, BLOCK_SIZE >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
+		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
 
 		cudaDeviceSynchronize();
 
-		nonce += numBlocks * BLOCK_SIZE;
+		nonce += NUMBLOCKS * BLOCK_SIZE;
 
 		print_state();
 

@@ -30,12 +30,6 @@ typedef unsigned char BYTE;             // 8-bit byte
 typedef uint32_t  WORD;             // 32-bit word, change to "long" for 16-bit machines
 
 typedef struct {
-	BYTE * data;
-	uint64_t size;
-	BYTE digest[32];
-} JOB;
-
-typedef struct {
 	BYTE data[64];
 	WORD datalen;
 	unsigned long long bitlen;
