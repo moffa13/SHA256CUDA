@@ -7,6 +7,7 @@
 #include <thread>
 #include <iomanip>
 #include <string>
+#include <cassert>
 #include "main.h"
 #include "sha256.cuh"
 
@@ -76,11 +77,17 @@ __device__ size_t concatenate_nonce(uint64_t nonce, const char* str, size_t strl
 
 __global__ void sha256_kernel(unsigned char** d_inputs_for_threads, char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 	if (*out_found) return;
-	int i = blockIdx.x * blockDim.x + threadIdx.x + nonce_offset;
+	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+	uint64_t nonce = idx + nonce_offset;
 
-	unsigned char* out = d_inputs_for_threads[i - nonce_offset];
+	assert(idx < NUMBLOCKS * BLOCK_SIZE);
+	assert(idx >= 0);
 
-	size_t size = concatenate_nonce(i, in_input_string, in_input_string_size, out);
+	unsigned char* out = d_inputs_for_threads[idx];
+
+	size_t size = concatenate_nonce(nonce, in_input_string, in_input_string_size, out);
+
+	assert(size <= in_input_string_size + 32 + 1);
 
 	unsigned char sha[32];
 
@@ -94,9 +101,6 @@ __global__ void sha256_kernel(unsigned char** d_inputs_for_threads, char* out_in
 		memcpy(out_input_string_nonce, out, size);
 		atomicExch(out_found, 1);
 	}
-
-	free(out);
-
 }
 
 void pre_sha256() {
@@ -119,7 +123,7 @@ void print_state() {
 		t_last_updated = std::chrono::high_resolution_clock::now();
 		std::chrono::duration<double, std::milli> span = t2 - t1;
 		float ratio = span.count() / 1000;
-		std::cout << std::fixed << static_cast<int>((nonce - user_nonce) / ratio) << " hash(es)/s" << std::endl;
+		std::cout << std::fixed << static_cast<uint64_t>((nonce - user_nonce) / ratio) << " hash(es)/s" << std::endl;
 
 		std::cout << std::fixed << "Nonce : " << nonce << std::endl;
 	}
@@ -142,15 +146,14 @@ int main() {
 	std::cout << "Entrez un message : ";
 	std::cin >> in;
 
-#ifndef _DEBUG
+
 	std::cout << "Nonce : ";
-	std::cin >> nonce;
-	user_nonce = nonce;
+	std::cin >> user_nonce;
 
 	std::cout << "Difficulte : ";
 	std::cin >> difficulty;
 	std::cout << std::endl;
-#endif
+
 
 	const size_t input_size = in.size();
 
@@ -158,10 +161,10 @@ int main() {
 	char *d_in = nullptr;
 
 	// Create the input string for the device
-	cudaMalloc(&d_in, input_size);
-	cudaMemcpy(d_in, in.c_str(), input_size, cudaMemcpyHostToDevice);
+	cudaMalloc(&d_in, input_size + 1);
+	cudaMemcpy(d_in, in.c_str(), input_size + 1, cudaMemcpyHostToDevice);
 
-	cudaMallocManaged(&g_out, input_size + 32);
+	cudaMallocManaged(&g_out, input_size + 32 + 1);
 	cudaMallocManaged(&g_hash_out, 32);
 	cudaMallocManaged(&g_found, sizeof(int));
 	*g_found = 0;
@@ -174,7 +177,7 @@ int main() {
 	h_inputs_for_threads = (unsigned char**)malloc(sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE);
 
 	for (size_t i = 0; i < NUMBLOCKS * BLOCK_SIZE; ++i) {
-		cudaMalloc(&(h_inputs_for_threads[i]), in.size() + 32);
+		cudaMalloc(&(h_inputs_for_threads[i]), in.size() + 32 + 1);
 	}
 
 	cudaMemcpy(d_inputs_for_threads, h_inputs_for_threads, sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE, cudaMemcpyHostToDevice);
@@ -184,7 +187,11 @@ int main() {
 	for (;;) {
 		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE >> > (d_inputs_for_threads, g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
 
-		cudaDeviceSynchronize();
+		cudaError_t err = cudaDeviceSynchronize();
+		if (err != cudaSuccess) {
+			throw 1;
+		}
+
 
 		nonce += NUMBLOCKS * BLOCK_SIZE;
 
