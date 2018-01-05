@@ -12,10 +12,10 @@
 
 #define SHOW_INTERVAL_MS 1000
 #define BLOCK_SIZE 1024
-#define SHA_PER_ITERATIONS 3200
+#define SHA_PER_ITERATIONS 10240
 #define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
 
-size_t difficulty = 7;
+size_t difficulty = 8;
 
 // Output string by the device read by host
 char *g_out = nullptr;
@@ -74,11 +74,12 @@ __device__ size_t concatenate_nonce(uint64_t nonce, const char* str, size_t strl
 	return i;
 }
 
-__global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
+__global__ void sha256_kernel(unsigned char** d_inputs_for_threads, char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 	if (*out_found) return;
 	int i = blockIdx.x * blockDim.x + threadIdx.x + nonce_offset;
 
-	unsigned char *out = (unsigned char*)malloc(in_input_string_size + 32);
+	unsigned char* out = d_inputs_for_threads[i - nonce_offset];
+
 	size_t size = concatenate_nonce(i, in_input_string, in_input_string_size, out);
 
 	unsigned char sha[32];
@@ -99,7 +100,6 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 }
 
 void pre_sha256() {
-	// compy symbols
 	checkCudaErrors(cudaMemcpyToSymbol(dev_k, host_k, sizeof(host_k), 0, cudaMemcpyHostToDevice));
 }
 
@@ -168,10 +168,21 @@ int main() {
 
 	nonce += user_nonce;
 
+	unsigned char** d_inputs_for_threads;
+	unsigned char** h_inputs_for_threads;
+	cudaMalloc(&d_inputs_for_threads, sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE);
+	h_inputs_for_threads = (unsigned char**)malloc(sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE);
+
+	for (size_t i = 0; i < NUMBLOCKS * BLOCK_SIZE; ++i) {
+		cudaMalloc(&(h_inputs_for_threads[i]), in.size() + 32);
+	}
+
+	cudaMemcpy(d_inputs_for_threads, h_inputs_for_threads, sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE, cudaMemcpyHostToDevice);
+
 	pre_sha256();
 
 	for (;;) {
-		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
+		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE >> > (d_inputs_for_threads, g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
 
 		cudaDeviceSynchronize();
 
@@ -183,6 +194,19 @@ int main() {
 			break;
 		}
 	}
+
+	for (size_t i = 0; i < NUMBLOCKS * BLOCK_SIZE; ++i) {
+		cudaFree(h_inputs_for_threads[i]);
+	}
+
+	cudaFree(g_out);
+	cudaFree(g_hash_out);
+	cudaFree(g_found);
+
+	cudaFree(d_in);
+	cudaFree(d_inputs_for_threads);
+	
+	free(h_inputs_for_threads);
 
 	cudaDeviceReset();
 
