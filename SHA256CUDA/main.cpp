@@ -11,20 +11,20 @@
 #include "main.h"
 #include "sha256.cuh"
 
-#define SHOW_INTERVAL_MS 1000
-#define BLOCK_SIZE 1024
-#define SHA_PER_ITERATIONS 10240
+#define SHOW_INTERVAL_MS 500
+#define BLOCK_SIZE 256
+#define SHA_PER_ITERATIONS 8'388'608
 #define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
 
-size_t difficulty = 8;
+static size_t difficulty = 1;
 
 // Output string by the device read by host
 char *g_out = nullptr;
 unsigned char *g_hash_out = nullptr;
 int *g_found = nullptr;
 
-uint64_t nonce = 0;
-uint64_t user_nonce = 0;
+static uint64_t nonce = 0;
+static uint64_t user_nonce = 0;
 
 // First timestamp when program starts
 static std::chrono::high_resolution_clock::time_point t1;
@@ -53,7 +53,7 @@ __device__ bool checkZeroPadding(unsigned char* sha, size_t difficulty) {
 }
 
 // Does the same as sprintf(char*, "%d%s", int, const char*) but a bit faster
-__device__ size_t concatenate_nonce(uint64_t nonce, const char* str, size_t strlen, unsigned char* out) {
+__device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 	uint64_t result = nonce;
 	uint8_t remainder;
 	size_t nonce_size = nonce == 0 ? 1 : floor(log10((double)nonce)) + 1;
@@ -66,40 +66,50 @@ __device__ size_t concatenate_nonce(uint64_t nonce, const char* str, size_t strl
 
 	out[0] = result + '0';
 	i = nonce_size;
-
-	for (size_t c = 0; c < strlen; ++c) {
-		out[i++] = str[c];
-	}
-
 	out[i] = 0;
 	return i;
 }
 
-__global__ void sha256_kernel(unsigned char** d_inputs_for_threads, char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
-	if (*out_found) return;
+
+extern __shared__ char array[];
+__global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
+
+	// If this is the first thread of the block, init the input string in shared memory
+	char* in = (char*) &array[0];
+	if (threadIdx.x == 0) {
+		memcpy(in, in_input_string, in_input_string_size + 1);
+	}
+
+	__syncthreads(); // Ensure the input string has been written in SMEM
+
 	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 	uint64_t nonce = idx + nonce_offset;
 
-	assert(idx < NUMBLOCKS * BLOCK_SIZE);
-	assert(idx >= 0);
+	// The first byte we can write because there is the input string at the begining	
+	// Respects the memory padding of 8 bit (char).
+	size_t const minArray = static_cast<size_t>(ceil((in_input_string_size + 1) / 8.f) * 8);
+	
+	uintptr_t sha_addr = threadIdx.x * (64) + minArray;
+	uintptr_t nonce_addr = sha_addr + 32;
 
-	unsigned char* out = d_inputs_for_threads[idx];
+	unsigned char* sha = (unsigned char*)&array[sha_addr];
+	unsigned char* out = (unsigned char*)&array[nonce_addr];
+	memset(out, 0, 32);
 
-	size_t size = concatenate_nonce(nonce, in_input_string, in_input_string_size, out);
+	size_t size = nonce_to_str(nonce, out);
 
-	assert(size <= in_input_string_size + 32 + 1);
-
-	unsigned char sha[32];
+	assert(size <= 32);
 
 	SHA256_CTX ctx;
 	sha256_init(&ctx);
 	sha256_update(&ctx, out, size);
+	sha256_update(&ctx, (unsigned char *)in, in_input_string_size);
 	sha256_final(&ctx, sha);
-	//atomicAdd(g_calculated_hashes, 1);
-	if (checkZeroPadding(sha, difficulty)) {
+
+	if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
 		memcpy(out_found_hash, sha, 32);
 		memcpy(out_input_string_nonce, out, size);
-		atomicExch(out_found, 1);
+		memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
 	}
 }
 
@@ -137,6 +147,7 @@ void print_state() {
 int main() {
 
 	cudaSetDevice(0);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
 	t1 = std::chrono::high_resolution_clock::now();
 	t_last_updated = std::chrono::high_resolution_clock::now();
@@ -171,27 +182,19 @@ int main() {
 
 	nonce += user_nonce;
 
-	unsigned char** d_inputs_for_threads;
-	unsigned char** h_inputs_for_threads;
-	cudaMalloc(&d_inputs_for_threads, sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE);
-	h_inputs_for_threads = (unsigned char**)malloc(sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE);
-
-	for (size_t i = 0; i < NUMBLOCKS * BLOCK_SIZE; ++i) {
-		cudaMalloc(&(h_inputs_for_threads[i]), in.size() + 32 + 1);
-	}
-
-	cudaMemcpy(d_inputs_for_threads, h_inputs_for_threads, sizeof(unsigned char*) * NUMBLOCKS * BLOCK_SIZE, cudaMemcpyHostToDevice);
-
 	pre_sha256();
 
+	size_t dynamic_shared_size = (ceil((input_size + 1) / 8.f) * 8) + (64 * BLOCK_SIZE);
+
+	std::cout << "Shared memory is " << dynamic_shared_size << "B" << std::endl;
+
 	for (;;) {
-		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE >> > (d_inputs_for_threads, g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
+		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
 
 		cudaError_t err = cudaDeviceSynchronize();
 		if (err != cudaSuccess) {
-			throw 1;
+			throw std::runtime_error("Device error");
 		}
-
 
 		nonce += NUMBLOCKS * BLOCK_SIZE;
 
@@ -202,18 +205,12 @@ int main() {
 		}
 	}
 
-	for (size_t i = 0; i < NUMBLOCKS * BLOCK_SIZE; ++i) {
-		cudaFree(h_inputs_for_threads[i]);
-	}
 
 	cudaFree(g_out);
 	cudaFree(g_hash_out);
 	cudaFree(g_found);
 
 	cudaFree(d_in);
-	cudaFree(d_inputs_for_threads);
-	
-	free(h_inputs_for_threads);
 
 	cudaDeviceReset();
 
