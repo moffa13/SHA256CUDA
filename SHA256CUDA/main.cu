@@ -1,6 +1,6 @@
 
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include <iostream>
 #include <chrono>
 #include <cmath>
@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <string>
 #include <cassert>
+#include <cstring>
+
 #include "main.h"
 #include "sha256.cuh"
 
@@ -155,7 +157,7 @@ int main() {
 	std::string in;
 	
 	std::cout << "Entrez un message : ";
-	std::cin >> in;
+	getline(std::cin, in);
 
 
 	std::cout << "Nonce : ";
@@ -214,7 +216,8 @@ int main() {
 
 	cudaDeviceReset();
 
-	system("pause");
+	// Windows
+	// system("pause");
 
 	return 0;
 }
