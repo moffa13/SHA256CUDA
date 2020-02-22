@@ -108,6 +108,14 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 	sha256_update(&ctx, (unsigned char *)in, in_input_string_size);
 	sha256_final(&ctx, sha);
 
+	// Second round of SHA256
+	sha256_init(&ctx);
+	unsigned char tmp[32];
+	memcpy(tmp, sha, 32);
+	sha256_update(&ctx, tmp, 32);
+	sha256_final(&ctx, tmp);
+	memcpy(sha, tmp, 32);
+
 	if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
 		memcpy(out_found_hash, sha, 32);
 		memcpy(out_input_string_nonce, out, size);
@@ -188,7 +196,7 @@ int main() {
 
 	size_t dynamic_shared_size = (ceil((input_size + 1) / 8.f) * 8) + (64 * BLOCK_SIZE);
 
-	std::cout << "Shared memory is " << dynamic_shared_size << "B" << std::endl;
+	std::cout << "Shared memory is " << dynamic_shared_size*1024 << "KB" << std::endl;
 
 	for (;;) {
 		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
