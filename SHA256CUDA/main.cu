@@ -13,12 +13,12 @@
 #include "main.h"
 #include "sha256.cuh"
 
-#define SHOW_INTERVAL_MS 500
+#define SHOW_INTERVAL_MS 2000
 #define BLOCK_SIZE 256
 #define SHA_PER_ITERATIONS 8'388'608
 #define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
 
-static uint8_t difficulty = 1;
+static size_t difficulty = 1;
 
 // Output string by the device read by host
 char *g_out = nullptr;
