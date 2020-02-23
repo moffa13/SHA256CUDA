@@ -148,6 +148,7 @@ void print_state() {
 	if (last_show_interval.count() > SHOW_INTERVAL_MS) {
 		std::chrono::duration<double, std::milli> span = t2 - t_last_updated;
 		float ratio = span.count() / 1000;
+		std::cout << span.count() << " " << nonce - last_nonce_since_update << std::endl;
 
 		std::cout << std::fixed << static_cast<uint64_t>((nonce - last_nonce_since_update) / ratio) << " hash(es)/s" << std::endl;
 		

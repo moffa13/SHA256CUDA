@@ -21,7 +21,7 @@ james@acer-nitro5:~/src/cuda/SHA256CUDA$
 ```
 
 On my system with a GTX 1050 GPU, I get 6.5-12 million hash/s.
-On my GTX 970, I get 13 millions hash/s in Release mode and max speed optimization (-O2)
+On my GTX 970, I get 135 millions hashes/s in Release mode and max speed optimization (-O2)
 
 With sha256d:
 
