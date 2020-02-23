@@ -207,7 +207,7 @@ int main() {
 
 	size_t dynamic_shared_size = (ceil((input_size + 1) / 8.f) * 8) + (64 * BLOCK_SIZE);
 
-	std::cout << "Shared memory is " << dynamic_shared_size * 1024 << "KB" << std::endl;
+	std::cout << "Shared memory is " << dynamic_shared_size / 1024 << "KB" << std::endl;
 
 	while (!*g_found) {
 		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
