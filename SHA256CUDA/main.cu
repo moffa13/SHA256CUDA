@@ -35,7 +35,7 @@ static uint64_t user_nonce_low = 0;
 static uint64_t user_nonce_high = 0;
 static uint64_t last_nonce_since_update = 0;
 
-// Last timestamp we printed debug infos
+// Last timestamp we printed debug info
 static std::chrono::high_resolution_clock::time_point t_last_updated;
 
 __device__ bool checkZeroPadding(unsigned char* sha, uint8_t difficulty) {
@@ -79,15 +79,14 @@ __device__ void nonce_to_bytes(uint64_t nonce_low, uint64_t nonce_high, unsigned
 
 __constant__ uint64_t total_nonces = IDX_MULTIPLIER;
 __constant__ unsigned char constant_bytes[4] = { 0xD8, 0x79, 0x9f, 0x50 };
-// figure out whata characters
 __global__ void sha256_kernel(uint64_t* out_nonce_low, uint64_t* out_nonce_high, unsigned char* out_found_hash, int* out_found, const char* in_input_string, size_t in_input_string_size, uint8_t difficulty, uint64_t nonce_offset_low, uint64_t nonce_offset_high) {
     __shared__ SHA256_CTX shared_ctx[BLOCK_SIZE];
 
     uint64_t nonce_low;
     uint64_t nonce_high;
 
-    unsigned char nonce[16]; // Local to each thread
-    unsigned char sha[32];   // Local to each thread
+    unsigned char nonce[16];
+    unsigned char sha[32];
 
     for (uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
         idx < total_nonces;
