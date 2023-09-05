@@ -15,6 +15,10 @@ Example:
 > 000008a833f27d46323ec3750e9830e5822a394446f9441c6ce9c5a8bb5c8d64|078f489ee5b93d6469993e250566c204
 ```
 
+## Important Notes:
+1. Difficulty checking is not implemented! TODO.
+2. There is no communication mechanism back to a host program; the host program must "shell out" to the compiled executable and parse the `<hash>|<nonce>` result from stdin.
+
 Original readme below.
 
 ---
