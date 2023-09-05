@@ -34,6 +34,7 @@ typedef struct {
 	WORD datalen;
 	unsigned long long bitlen;
 	WORD state[8];
+	BYTE padding[4];  // Add 4 bytes of padding? maybe remove this
 } SHA256_CTX;
 
 __constant__ WORD dev_k[64];
@@ -88,7 +89,7 @@ __device__ void mycpy64(uint32_t *d, const uint32_t *s) {
 __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, e, f, g, h, i, j, t1, t2, m[64];
-	WORD S[8];
+	//WORD S[8];
 
 	//mycpy32(S, ctx->state);
 
@@ -96,7 +97,7 @@ __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 	for (i = 0, j = 0; i < 16; ++i, j += 4)
 		m[i] = (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | (data[j + 3]);
 
-#pragma unroll 64
+#pragma unroll 48
 	for (; i < 64; ++i)
 		m[i] = SIG1(m[i - 2]) + m[i - 7] + SIG0(m[i - 15]) + m[i - 16];
 
@@ -147,16 +148,43 @@ __device__ void sha256_init(SHA256_CTX *ctx)
 	ctx->state[7] = 0x5be0cd19;
 }
 
-__device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
+__device__ void sha256_update(SHA256_CTX* ctx, const BYTE data[], size_t len)
 {
-	WORD i;
+	size_t i = 0;
 
-	// for each byte in message
-	for (i = 0; i < len; ++i) {
-		// ctx->data == message 512 bit chunk
-		ctx->data[ctx->datalen] = data[i];
-		ctx->datalen++;
-		if (ctx->datalen == 64) {
+	// If there's some data leftover in ctx->data, fill it up first
+	if (ctx->datalen)
+	{
+		size_t amount_to_copy = 64 - ctx->datalen;
+		if (amount_to_copy > len)
+			amount_to_copy = len;
+
+		memcpy(&(ctx->data[ctx->datalen]), data, amount_to_copy);
+		ctx->datalen += amount_to_copy;
+		i += amount_to_copy;
+
+		if (ctx->datalen == 64)
+		{
+			sha256_transform(ctx, ctx->data);
+			ctx->bitlen += 512;
+			ctx->datalen = 0;
+		}
+	}
+
+	// Process in 64-byte chunks
+	while (i + 64 <= len)
+	{
+		sha256_transform(ctx, &data[i]);
+		ctx->bitlen += 512;
+		i += 64;
+	}
+
+	// Process any leftover bytes
+	while (i < len)
+	{
+		ctx->data[ctx->datalen++] = data[i++];
+		if (ctx->datalen == 64)
+		{
 			sha256_transform(ctx, ctx->data);
 			ctx->bitlen += 512;
 			ctx->datalen = 0;

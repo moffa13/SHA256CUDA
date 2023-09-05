@@ -316,3 +316,13 @@ OpenCover/
 
 # Azure Stream Analytics local run output 
 ASALocalRun/
+
+# builds
+*.exe
+*.exp
+*.lib
+profile*
+out.*
+reference*
+rewrite*
+.vscode/

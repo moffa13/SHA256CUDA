@@ -1,5 +1,25 @@
 # SHA256CUDA
 
+This is a fork of the original designed for mining Fortuna.
+
+1. Compile. Google to figure out how to get `nvcc` on your system.
+`$ nvcc -o hash_program main.cu`
+
+2. Run
+`./hash_program` <last 20 hex encoded bytes of datum> <hex encoded nonce> <leading zeroes>`
+
+Example:
+
+```
+./hash_program 1944115820000000000743b91d82f30188f55777051ae87aae1aa32dfe90d5564a0bfbf73e0919fffc1a03578b88ff 078f489ebdb8e90d69993e250566c204 5
+> 000008a833f27d46323ec3750e9830e5822a394446f9441c6ce9c5a8bb5c8d64|078f489ee5b93d6469993e250566c204
+```
+
+Original readme below.
+
+---
+
+
 Because of std::cin ignoring spaces, including newlines, use getline(std::cin, in) instead.
 
 `$ nvcc -o hash_program main.cu`
