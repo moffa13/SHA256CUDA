@@ -9,7 +9,7 @@ This is a fork of the original designed for mining Fortuna.
 `$ nvcc -o hash_program main.cu`
 
 2. Run
-`./hash_program` `<last 20 hex encoded bytes of datum> <hex encoded nonce> <leading zeroes>`
+`./hash_program` `<[20..n] hex encoded bytes of datum> <hex encoded nonce> <leading zeroes>`
 
 Example:
 
