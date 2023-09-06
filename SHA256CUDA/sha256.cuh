@@ -31,10 +31,9 @@ typedef uint32_t  WORD;             // 32-bit word, change to "long" for 16-bit 
 
 typedef struct {
 	BYTE data[64];
-	WORD datalen;
-	unsigned long long bitlen;
+	uint8_t datalen;
+	uint16_t bitlen;
 	WORD state[8];
-	BYTE padding[4];  // Add 4 bytes of padding? maybe remove this
 } SHA256_CTX;
 
 __constant__ WORD dev_k[64];
@@ -214,18 +213,18 @@ __device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 
 	// Append to the padding the total message's length in bits and transform.
 	ctx->bitlen += ctx->datalen * 8;
+
+#pragma unroll 6
+	for (int i = 56; i <= 61; i++) {
+		ctx->data[i] = 0;
+	}
 	ctx->data[63] = ctx->bitlen;
 	ctx->data[62] = ctx->bitlen >> 8;
-	ctx->data[61] = ctx->bitlen >> 16;
-	ctx->data[60] = ctx->bitlen >> 24;
-	ctx->data[59] = ctx->bitlen >> 32;
-	ctx->data[58] = ctx->bitlen >> 40;
-	ctx->data[57] = ctx->bitlen >> 48;
-	ctx->data[56] = ctx->bitlen >> 56;
 	sha256_transform(ctx, ctx->data);
 
 	// Since this implementation uses little endian byte ordering and SHA uses big endian,
 	// reverse all the bytes when copying the final state to the output hash.
+#pragma unroll 4
 	for (i = 0; i < 4; ++i) {
 		hash[i] = (ctx->state[0] >> (24 - i * 8)) & 0x000000ff;
 		hash[i + 4] = (ctx->state[1] >> (24 - i * 8)) & 0x000000ff;
